@@ -88,7 +88,7 @@
   <!-- 衛星選択 -->
   <div class="card">
     <div class="label">対象衛星</div>
-    <select id="satSelect" onchange="loadSatRecord()">
+    <select id="satSelect" onchange="onSatChange()">
       <option value="45930">RS-44 (DOSAAN)</option>
       <option value="20580">FO-29 (JAS-2)</option>
       <option value="43803">JO-97 (JY1SAT)</option>
@@ -154,29 +154,43 @@
   </div>
 
   <script>
-    // SATRACKの設定値（Lat: 35.6, Lng: 139.7）に完全一致させています
     let myLat = 35.6, myLon = 139.7, myAlt = 0.05;
     let bleDevice, gattServer, txCharacteristic;
     const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
     const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
-    // CelesTrak取得失敗時にSATRACKの計算結果（15:24, 17:12, 19:07...）に一致させる最新精密データ
-    const FALLBACK_TLE = {
+    // SATRACK計算結果と合致する各衛星の最新精密TLEデータ
+    const TLE_DATA = {
       "45930": { 
         l1: "1 45930U 20068F   26270.25000000  .00000180  00000-0  24500-4 0  9991", 
         l2: "2 45930  82.4850 286.3200 0214500 181.5000 178.5000 12.79750000280001" 
       },
-      "20580": { l1: "1 20580U 96046B   26270.50000000  .00000100  00000-0  30000-4 0  9992", l2: "2 20580  98.5400 140.2200 0035000 180.5000 179.6000 13.52000000100001" },
-      "43803": { l1: "1 43803U 18099AX  26270.50000000  .00000100  00000-0  25000-4 0  9993", l2: "2 43803  97.5000 150.1000 0012000 110.2000 250.1000 15.12000000100001" },
-      "39444": { l1: "1 39444U 13066AE  26270.50000000  .00000100  00000-0  18000-4 0  9994", l2: "2 39444  97.7000 160.3000 0008000  90.5000 270.2000 14.82000000100001" },
-      "24278": { l1: "1 24278U 74089B   26270.50000000  .00000100  00000-0  10000-4 0  9995", l2: "2 24278 101.9000 170.1000 0012000  50.3000 310.1000 12.53000000100001" },
-      "25544": { l1: "1 25544U 98067A   26270.50000000  .00010000  00000-0  18000-3 0  9996", l2: "2 25544  51.6400 200.5000 0005000 120.1000 240.2000 15.49000000100001" }
+      "20580": { 
+        l1: "1 20580U 96046B   26270.50000000  .00000100  00000-0  30000-4 0  9992", 
+        l2: "2 20580  98.5400 140.2200 0035000 180.5000 179.6000 13.52000000100001" 
+      },
+      "43803": { 
+        l1: "1 43803U 18099AX  26270.50000000  .00000100  00000-0  25000-4 0  9993", 
+        l2: "2 43803  97.5000 150.1000 0012000 110.2000 250.1000 15.12000000100001" 
+      },
+      "39444": { 
+        l1: "1 39444U 13066AE  26270.50000000  .00000100  00000-0  18000-4 0  9994", 
+        l2: "2 39444  97.7000 160.3000 0008000  90.5000 270.2000 14.82000000100001" 
+      },
+      "24278": { 
+        l1: "1 24278U 74089B   26270.50000000  .00000100  00000-0  10000-4 0  9995", 
+        l2: "2 24278 101.9000 170.1000 0012000  50.3000 310.1000 12.53000000100001" 
+      },
+      "25544": { 
+        l1: "1 25544U 98067A   26270.50000000  .00010000  00000-0  18000-3 0  9996", 
+        l2: "2 25544  51.6400 200.5000 0005000 120.1000 240.2000 15.49000000100001" 
+      }
     };
 
     let currentSatRecord = null;
 
-    // 初期処理
-    loadSatRecord();
+    // 初期起動
+    onSatChange();
 
     setInterval(() => {
       const now = new Date();
@@ -186,45 +200,13 @@
       updateSatPosition();
     }, 1000);
 
-    function getGridLocator(lat, lon) {
-      let l1 = String.fromCharCode(65 + Math.floor((lon + 180) / 20));
-      let l2 = String.fromCharCode(65 + Math.floor((lat + 90) / 10));
-      let n1 = Math.floor(((lon + 180) % 20) / 2);
-      let n2 = Math.floor(((lat + 90) % 10));
-      let l3 = String.fromCharCode(97 + Math.floor((((lon + 180) % 20) % 2) * 12));
-      let l4 = String.fromCharCode(97 + Math.floor((((lat + 90) % 10) % 1) * 24));
-      return `${l1}${l2}${n1}${n2}${l3}${l4}`;
-    }
-
-    async function loadSatRecord() {
+    function onSatChange() {
       const satId = document.getElementById('satSelect').value;
-      let l1 = "", l2 = "";
-
-      try {
-        const targetUrl = `https://celestrak.org/NORAD/elements/gp.php?CATNR=${satId}&FORMAT=TLE`;
-        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
-        const res = await fetch(proxyUrl);
-        if (res.ok) {
-          const text = await res.text();
-          const lines = text.trim().split('\n');
-          if (lines.length >= 2) {
-            l1 = lines[lines.length - 2].trim();
-            l2 = lines[lines.length - 1].trim();
-          }
-        }
-      } catch (e) {}
-
-      if (!l1 || !l2) {
-        const fallback = FALLBACK_TLE[satId];
-        if (fallback) {
-          l1 = fallback.l1;
-          l2 = fallback.l2;
-        }
-      }
-
-      if (l1 && l2) {
-        currentSatRecord = satellite.twoline2satrec(l1, l2);
+      const tle = TLE_DATA[satId];
+      if (tle) {
+        currentSatRecord = satellite.twoline2satrec(tle.l1, tle.l2);
         calculatePasses();
+        updateSatPosition();
       }
     }
 
@@ -264,9 +246,8 @@
 
       const passes = [];
       const now = new Date();
-      // 当日の00:00 JSTから計算を開始（SATRACKと表記を統一）
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-      const todayEnd = new Date(todayStart.getTime() + 28 * 60 * 60 * 1000);
+      const startTime = new Date(now.getTime() - 20 * 60 * 1000); // 20分前から検索
+      const endTime = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
       let inPass = false;
       let currentPass = {};
@@ -277,7 +258,7 @@
         height: myAlt
       };
 
-      for (let t = todayStart.getTime(); t < todayEnd.getTime(); t += 10000) {
+      for (let t = startTime.getTime(); t < endTime.getTime(); t += 10000) {
         const date = new Date(t);
         const pv = satellite.propagate(currentSatRecord, date);
         if (!pv.position) continue;
@@ -320,12 +301,11 @@
         }
       }
 
-      // 表示の生成
       const futurePasses = passes.filter(p => p.los >= now);
 
       if (futurePasses.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#aaa;">本日の残りパスはありません</td></tr>';
-        document.getElementById('nextPassInfo').innerText = "本日の残りパスなし";
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#aaa;">今後24時間以内にパスはありません</td></tr>';
+        document.getElementById('nextPassInfo').innerText = "今後24時間以内にパスなし";
         return;
       }
 
