@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Satellite Controller & Tracker</title>
+  <title>JR2GKZ Satellite Controller & Tracker</title>
   <style>
     body {
       background-color: #121212;
@@ -71,7 +71,7 @@
 </head>
 <body>
 
-  <h1>🛰️ Satellite Controller</h1>
+  <h1>🛰️ JR2GKZ Satellite Controller</h1>
 
   <!-- Bluetooth接続 -->
   <div class="card">
@@ -252,7 +252,7 @@
       const passes = [];
       const now = new Date();
       const startTime = new Date(now.getTime());
-      const endTime = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24時間
+      const endTime = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
       let inPass = false;
       let currentPass = {};
@@ -263,7 +263,7 @@
         height: myAlt
       };
 
-      for (let t = startTime.getTime(); t < endTime.getTime(); t += 30000) { // 30秒精度
+      for (let t = startTime.getTime(); t < endTime.getTime(); t += 30000) {
         const date = new Date(t);
         const pv = satellite.propagate(currentSatRecord, date);
         if (!pv.position) continue;
@@ -312,7 +312,6 @@
         return;
       }
 
-      // 直近パス表示
       const first = passes[0];
       const aosStr = first.aos.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
       const diffMin = Math.round((first.aos - now) / 60000);
@@ -326,7 +325,6 @@
         `AOS: <b>${aosStr}</b> (${timeDiffText}) / MaxEL: <b>${first.maxEl.toFixed(0)}°</b><br>` +
         `コース: <b>${eastWest}コース (${northSouth})</b>`;
 
-      // 表の作成
       passes.forEach(p => {
         const tr = document.createElement('tr');
         const aStr = p.aos.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
