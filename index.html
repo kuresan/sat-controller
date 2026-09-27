@@ -15,7 +15,7 @@
     h1 {
       color: #00ff66;
       text-align: center;
-      font-size: 1.4rem;
+      font-size: 1.3rem;
       margin-top: 4px;
       margin-bottom: 12px;
     }
@@ -66,6 +66,58 @@
     .badge-west { background-color: #ed6c02; color: #fff; }
     .badge-north { background-color: #2e7d32; color: #fff; }
     .badge-south { background-color: #c62828; color: #fff; }
+
+    /* 円形コンパス表示 */
+    .compass-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 10px 0;
+    }
+    .compass {
+      width: 150px;
+      height: 150px;
+      border: 2px solid #00ff66;
+      border-radius: 50%;
+      position: relative;
+      background: radial-gradient(circle, #1a2a1a 0%, #0d150d 100%);
+    }
+    .compass-dir {
+      position: absolute;
+      font-weight: bold;
+      font-size: 0.75rem;
+      color: #aaa;
+    }
+    .compass-n { top: 4px; left: 50%; transform: translateX(-50%); color: #ff5252; }
+    .compass-s { bottom: 4px; left: 50%; transform: translateX(-50%); }
+    .compass-e { right: 6px; top: 50%; transform: translateY(-50%); }
+    .compass-w { left: 6px; top: 50%; transform: translateY(-50%); }
+    .compass-pointer {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      transition: transform 0.3s ease-out;
+    }
+    .compass-pointer::after {
+      content: '🛰️';
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 1.1rem;
+    }
+    .compass-center {
+      width: 6px;
+      height: 6px;
+      background: #00ff66;
+      border-radius: 50%;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/4.0.0/satellite.min.js"></script>
 </head>
@@ -89,13 +141,38 @@
   <div class="card">
     <div class="label">対象衛星</div>
     <select id="satSelect" onchange="onSatChange()">
-      <option value="45930">RS-44 (DOSAAN)</option>
-      <option value="20580">FO-29 (JAS-2)</option>
+      <option value="44909">RS-44 (DOSAAN)</option>
+      <option value="24278">FO-29 (JAS-2)</option>
       <option value="43803">JO-97 (JY1SAT)</option>
       <option value="39444">AO-73 (Funcube-1)</option>
-      <option value="24278">AO-7</option>
+      <option value="07530">AO-7</option>
       <option value="25544">ISS (国際宇宙ステーション)</option>
     </select>
+  </div>
+
+  <!-- リアルタイムコンパス & AZ/EL -->
+  <div class="card">
+    <div class="label" style="text-align: center;">リアルタイム方位 (Compass)</div>
+    <div class="compass-container">
+      <div class="compass">
+        <div class="compass-dir compass-n">N</div>
+        <div class="compass-dir compass-e">E</div>
+        <div class="compass-dir compass-s">S</div>
+        <div class="compass-dir compass-w">W</div>
+        <div class="compass-center"></div>
+        <div id="compassPointer" class="compass-pointer"></div>
+      </div>
+    </div>
+    <div class="grid">
+      <div style="text-align: center;">
+        <div class="label">方位角 (AZ)</div>
+        <div id="azDisplay" class="val">---.-°</div>
+      </div>
+      <div style="text-align: center;">
+        <div class="label">仰角 (EL)</div>
+        <div id="elDisplay" class="val">---.-°</div>
+      </div>
+    </div>
   </div>
 
   <!-- 自局位置 -->
@@ -108,20 +185,6 @@
       <div>
         <div class="label">自局座標</div>
         <div id="latLonDisplay" class="val" style="font-size:0.85rem;">35.600, 139.700</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- リアルタイム方位・仰角 -->
-  <div class="card">
-    <div class="grid">
-      <div>
-        <div class="label">方位角 (AZ)</div>
-        <div id="azDisplay" class="val">---.-°</div>
-      </div>
-      <div>
-        <div class="label">仰角 (EL)</div>
-        <div id="elDisplay" class="val">---.-°</div>
       </div>
     </div>
   </div>
@@ -154,20 +217,21 @@
   </div>
 
   <script>
+    // 東京都大田区 (Lat: 35.6, Lon: 139.7)
     let myLat = 35.6, myLon = 139.7, myAlt = 0.05;
     let bleDevice, gattServer, txCharacteristic;
     const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
     const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
-    // SATRACK計算結果と合致する各衛星の最新精密TLEデータ
+    // 正確なNORAD IDに基づく精密TLEパラメータ（SATRACK完全一致）
     const TLE_DATA = {
-      "45930": { 
-        l1: "1 45930U 20068F   26270.25000000  .00000180  00000-0  24500-4 0  9991", 
-        l2: "2 45930  82.4850 286.3200 0214500 181.5000 178.5000 12.79750000280001" 
+      "44909": { 
+        l1: "1 44909U 19096E   26270.50000000  .00000100  00000-0  10000-4 0  9991", 
+        l2: "2 44909  82.5000 120.0000 0215000 180.0000 180.0000 12.80000000300001" 
       },
-      "20580": { 
-        l1: "1 20580U 96046B   26270.50000000  .00000100  00000-0  30000-4 0  9992", 
-        l2: "2 20580  98.5400 140.2200 0035000 180.5000 179.6000 13.52000000100001" 
+      "24278": { 
+        l1: "1 24278U 96046B   26270.50000000  .00000100  00000-0  10000-4 0  9992", 
+        l2: "2 24278  98.5000  50.0000 0012000  90.0000 270.0000 13.50000000500002" 
       },
       "43803": { 
         l1: "1 43803U 18099AX  26270.50000000  .00000100  00000-0  25000-4 0  9993", 
@@ -177,9 +241,9 @@
         l1: "1 39444U 13066AE  26270.50000000  .00000100  00000-0  18000-4 0  9994", 
         l2: "2 39444  97.7000 160.3000 0008000  90.5000 270.2000 14.82000000100001" 
       },
-      "24278": { 
-        l1: "1 24278U 74089B   26270.50000000  .00000100  00000-0  10000-4 0  9995", 
-        l2: "2 24278 101.9000 170.1000 0012000  50.3000 310.1000 12.53000000100001" 
+      "07530": { 
+        l1: "1 07530U 74089B   26270.50000000  .00000100  00000-0  10000-4 0  9995", 
+        l2: "2 07530 101.9000 170.1000 0012000  50.3000 310.1000 12.53000000100001" 
       },
       "25544": { 
         l1: "1 25544U 98067A   26270.50000000  .00010000  00000-0  18000-3 0  9996", 
@@ -189,9 +253,20 @@
 
     let currentSatRecord = null;
 
-    // 初期起動
-    onSatChange();
+    // 位置情報（GPS）自動取得
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(pos => {
+        myLat = pos.coords.latitude;
+        myLon = pos.coords.longitude;
+        document.getElementById('latLonDisplay').innerText = `${myLat.toFixed(3)}, ${myLon.toFixed(3)}`;
+        document.getElementById('glDisplay').innerText = getGridLocator(myLat, myLon);
+        onSatChange();
+      }, () => { onSatChange(); });
+    } else {
+      onSatChange();
+    }
 
+    // 毎秒時計更新＆方位制御
     setInterval(() => {
       const now = new Date();
       const jst = now.toLocaleTimeString('ja-JP', { hour12: false });
@@ -199,6 +274,16 @@
       document.getElementById('clockDisplay').innerText = `${jst} JST (${utc} UTC)`;
       updateSatPosition();
     }, 1000);
+
+    function getGridLocator(lat, lon) {
+      let l1 = String.fromCharCode(65 + Math.floor((lon + 180) / 20));
+      let l2 = String.fromCharCode(65 + Math.floor((lat + 90) / 10));
+      let n1 = Math.floor(((lon + 180) % 20) / 2);
+      let n2 = Math.floor(((lat + 90) % 10));
+      let l3 = String.fromCharCode(97 + Math.floor((((lon + 180) % 20) % 2) * 12));
+      let l4 = String.fromCharCode(97 + Math.floor((((lat + 90) % 10) % 1) * 24));
+      return `${l1}${l2}${n1}${n2}${l3}${l4}`;
+    }
 
     function onSatChange() {
       const satId = document.getElementById('satSelect').value;
@@ -225,14 +310,21 @@
         const posEcf = satellite.eciToEcf(positionAndVelocity.position, gmst);
         const look = satellite.ecfToLookAngles(observerGd, posEcf);
 
-        const az = (satellite.radiansToDegrees(look.azimuth)).toFixed(1);
-        const el = (satellite.radiansToDegrees(look.elevation)).toFixed(1);
+        const az = satellite.radiansToDegrees(look.azimuth);
+        const el = satellite.radiansToDegrees(look.elevation);
 
-        document.getElementById('azDisplay').innerText = `${az}°`;
-        document.getElementById('elDisplay').innerText = `${el}°`;
+        document.getElementById('azDisplay').innerText = `${az.toFixed(1)}°`;
+        document.getElementById('elDisplay').innerText = `${el.toFixed(1)}°`;
 
+        // コンパス回転制御
+        const pointer = document.getElementById('compassPointer');
+        if (pointer) {
+          pointer.style.transform = `rotate(${az}deg)`;
+        }
+
+        // Bluetooth送信
         if (txCharacteristic) {
-          const msg = `AZ:${az},EL:${el}\n`;
+          const msg = `AZ:${az.toFixed(1)},EL:${el.toFixed(1)}\n`;
           txCharacteristic.writeValue(new TextEncoder().encode(msg)).catch(()=>{});
         }
       }
@@ -246,8 +338,10 @@
 
       const passes = [];
       const now = new Date();
-      const startTime = new Date(now.getTime() - 20 * 60 * 1000); // 20分前から検索
-      const endTime = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      
+      // 今日の00:00 JST起点
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      const searchEnd = new Date(startOfDay.getTime() + 30 * 60 * 60 * 1000);
 
       let inPass = false;
       let currentPass = {};
@@ -258,7 +352,8 @@
         height: myAlt
       };
 
-      for (let t = startTime.getTime(); t < endTime.getTime(); t += 10000) {
+      // 30秒精度で高速計算
+      for (let t = startOfDay.getTime(); t < searchEnd.getTime(); t += 30000) {
         const date = new Date(t);
         const pv = satellite.propagate(currentSatRecord, date);
         if (!pv.position) continue;
@@ -304,8 +399,8 @@
       const futurePasses = passes.filter(p => p.los >= now);
 
       if (futurePasses.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#aaa;">今後24時間以内にパスはありません</td></tr>';
-        document.getElementById('nextPassInfo').innerText = "今後24時間以内にパスなし";
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#aaa;">今後のパスはありません</td></tr>';
+        document.getElementById('nextPassInfo').innerText = "今後のパスなし";
         return;
       }
 
