@@ -1,0 +1,211 @@
+<!DOCTYPE html>  
+<html lang="ja">  
+<head>  
+<meta charset="UTF-8">  
+<meta name="viewport" content="width=device-width, initial-scale=1.0">  
+<title>Satellite Tracker & Controller</title>  
+<!-- 軌道計算ライブラリ (satellite.js) -->  
+<script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/4.0.0/satellite.min.js"></script>  
+<style>  
+body { font-family: -apple-system, sans-serif; background: #121212; color: #e0e0e0; margin: 0; padding: 15px; }  
+h2 { color: #00e676; margin-top: 0; text-align: center; }  
+.card { background: #1e1e1e; border-radius: 10px; padding: 12px; margin-bottom: 12px; border: 1px solid #333; }  
+.btn { background: #00e676; color: #000; border: none; padding: 12px; border-radius: 6px; font-weight: bold; width: 100%; font-size: 16px; margin-top: 5px; }  
+.btn-off { background: #ff5252; color: #fff; }  
+.label { font-size: 12px; color: #aaa; }  
+.value { font-size: 20px; font-weight: bold; color: #fff; font-family: monospace; }  
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }  
+select { width: 100%; padding: 10px; background: #2a2a2a; color: #fff; border: 1px solid #444; border-radius: 6px; font-size: 16px; }  
+</style>  
+</head>  
+<body>  
+  
+<h2>🛰️ Satellite Controller</h2>  
+  
+<!-- BLE接続カード -->  
+<div class="card">  
+<button id="bleBtn" class="btn" onclick="toggleBLE()">Bluetooth 接続</button>  
+<div id="bleStatus" style="text-align:center; font-size:12px; margin-top:5px; color:#aaa;">未接続</div>  
+</div>  
+  
+<!-- 衛星選択 -->  
+<div class="card">  
+<span class="label">対象衛星</span>  
+<select id="satSelect" onchange="changeSat()">  
+<option value="RS-44">RS-44 (DOSAAN / CW,SSB)</option>  
+<option value="FO-29">FO-29 (JAS-2 / CW,SSB)</option>  
+<option value="JO-97">JO-97 (JY1SAT / CW,SSB)</option>  
+<option value="ISS">ISS (FM / Voice,APRS)</option>  
+<option value="SO-50">SO-50 (FM)</option>  
+</select>  
+</div>  
+  
+<!-- 自局位置情報 (GPS) -->  
+<div class="card grid">  
+<div>  
+<span class="label">Grid Locator (GL)</span>  
+<div id="glVal" class="value">PM95--</div>  
+</div>  
+<div>  
+<span class="label">自局座標</span>  
+<div id="gpsVal" class="value" style="font-size:14px;">取得中...</div>  
+</div>  
+</div>  
+  
+<!-- 衛星追尾ステータス -->  
+<div class="card grid">  
+<div>  
+<span class="label">方位角 (AZ)</span>  
+<div id="azVal" class="value">---.°</div>  
+</div>  
+<div>  
+<span class="label">仰角 (EL)</span>  
+<div id="elVal" class="value">---.°</div>  
+</div>  
+</div>  
+  
+<!-- ドップラー補正周波数 -->  
+<div class="card">  
+<div class="grid">  
+<div>  
+<span class="label">送信 (Uplink/TX)</span>  
+<div id="txVal" class="value" style="color:#ffb74d;">---.--- MHz</div>  
+</div>  
+<div>  
+<span class="label">受信 (Downlink/RX)</span>  
+<div id="rxVal" class="value" style="color:#64b5f6;">---.--- MHz</div>  
+</div>  
+</div>  
+</div>  
+  
+<script>  
+// --- 衛星TLEデータ定義 ---  
+const TLE_DATA = {  
+"RS-44": {  
+line1: "1 44909U 19096E   26269.50000000  .00000100  00000-0  10000-4 0  9991",  
+line2: "2 44909  82.5000 120.0000 0215000 180.0000 180.0000 12.80000000300001",  
+uplink: 145965000, // 中心 145.965 MHz (USB)  
+downlink: 435640000, // 中心 435.640 MHz (USB/Inverting)  
+mode: "SSB/CW",  
+inverting: true  
+},  
+"FO-29": {  
+line1: "1 24278U 96046B   26269.50000000  .00000100  00000-0  10000-4 0  9992",  
+line2: "2 24278  98.5000  50.0000 0012000  90.0000 270.0000 13.50000000500002",  
+uplink: 145950000,  
+downlink: 435800000,  
+mode: "SSB/CW",  
+inverting: true  
+}  
+};  
+  
+let myLat = 35.6895, myLon = 139.6917, myAlt = 0.01; // デフォルト（東京）  
+let bleDevice, bleCharacteristic;  
+let isConnected = false;  
+let currentSat = "RS-44";  
+  
+// --- 1. GPS位置情報の取得 ＆ GL計算 ---  
+if (navigator.geolocation) {  
+navigator.geolocation.watchPosition(pos => {  
+myLat = pos.coords.latitude;  
+myLon = pos.coords.longitude;  
+document.getElementById('gpsVal').innerText = `${myLat.toFixed(3)}, ${myLon.toFixed(3)}`;  
+document.getElementById('glVal').innerText = getGridLocator(myLat, myLon);  
+}, err => console.log(err), { enableHighAccuracy: true });  
+}  
+  
+function getGridLocator(lat, lon) {  
+let lon_adj = lon + 180;  
+let lat_adj = lat + 90;  
+let field1 = String.fromCharCode(65 + Math.floor(lon_adj / 20));  
+let field2 = String.fromCharCode(65 + Math.floor(lat_adj / 10));  
+let square1 = Math.floor((lon_adj % 20) / 2);  
+let square2 = Math.floor(lat_adj % 10);  
+let subsquare1 = String.fromCharCode(97 + Math.floor((lon_adj % 2) * 12));  
+let subsquare2 = String.fromCharCode(97 + Math.floor((lat_adj % 1) * 24));  
+return `${field1}${field2}${square1}${square2}${subsquare1}${subsquare2}`;  
+}  
+  
+// --- 2. BLE接続処理 (ESP32) ---  
+async function toggleBLE() {  
+if (!isConnected) {  
+try {  
+bleDevice = await navigator.bluetooth.requestDevice({  
+acceptAllDevices: true,  
+optionalServices: ['4fafc201-1fb5-459e-8fcc-c5c9c331914b']  
+});  
+const server = await bleDevice.gatt.connect();  
+const service = await server.getPrimaryService('4fafc201-1fb5-459e-8fcc-c5c9c331914b');  
+bleCharacteristic = await service.getCharacteristic('beb5483e-36e1-4688-b7f5-ea07361b26a8');  
+  
+isConnected = true;  
+document.getElementById('bleBtn').innerText = "接続解除";  
+document.getElementById('bleBtn').classList.add('btn-off');  
+document.getElementById('bleStatus').innerText = "ESP32 接続済み";  
+} catch (e) {  
+alert("BLE接続エラー: " + e);  
+}  
+} else {  
+if (bleDevice) bleDevice.gatt.disconnect();  
+isConnected = false;  
+document.getElementById('bleBtn').innerText = "Bluetooth 接続";  
+document.getElementById('bleBtn').classList.remove('btn-off');  
+document.getElementById('bleStatus').innerText = "未接続";  
+}  
+}  
+  
+function changeSat() {  
+currentSat = document.getElementById('satSelect').value;  
+}  
+  
+// --- 3. 軌道計算 & ドップラー補正ループ (1秒ごと) ---  
+setInterval(() => {  
+const satInfo = TLE_DATA[currentSat];  
+if (!satInfo) return;  
+  
+const satrec = satellite.twoline2satrec(satInfo.line1, satInfo.line2);  
+const now = new Date();  
+const positionAndVelocity = satellite.propagate(satrec, now);  
+const positionEci = positionAndVelocity.position;  
+const velocityEci = positionAndVelocity.velocity;  
+  
+if (!positionEci) return;  
+  
+const gmst = satellite.gstime(now);  
+const observerGd = { longitude: satellite.degreesToRadians(myLon), latitude: satellite.degreesToRadians(myLat), height: myAlt };  
+const positionEcf = satellite.eciToEcf(positionEci, gmst);  
+const lookAngles = satellite.ecfToLookAngles(observerGd, positionEcf);  
+  
+let az = satellite.radiansToDegrees(lookAngles.azimuth);  
+let el = satellite.radiansToDegrees(lookAngles.elevation);  
+  
+document.getElementById('azVal').innerText = `${az.toFixed(1)}°`;  
+document.getElementById('elVal').innerText = `${el.toFixed(1)}°`;  
+  
+// 仰角が0度以上（衛星が見えている）の場合に周波数計算  
+if (el > -5) {  
+const dopplerRatio = (velocityEci.x * positionEci.x + velocityEci.y * positionEci.y + velocityEci.z * positionEci.z) / Math.sqrt(positionEci.x**2 + positionEci.y**2 + positionEci.z**2) / 299792.458;  
+  
+let txFreq = satInfo.uplink * (1 - dopplerRatio);  
+let rxFreq = satInfo.downlink * (1 + dopplerRatio);  
+  
+if (satInfo.inverting) {  
+rxFreq = satInfo.downlink * (1 - dopplerRatio);  
+}  
+  
+document.getElementById('txVal').innerText = (txFreq / 1000000).toFixed(4) + " MHz";  
+document.getElementById('rxVal').innerText = (rxFreq / 1000000).toFixed(4) + " MHz";  
+  
+if (isConnected && bleCharacteristic) {  
+const cmd = `SET,AZ:${az.toFixed(1)},EL:${el.toFixed(1)},TX:${Math.round(txFreq)},RX:${Math.round(rxFreq)}\n`;  
+const encoder = new TextEncoder();  
+bleCharacteristic.writeValue(encoder.encode(cmd)).catch(err => console.log(err));  
+}  
+} else {  
+document.getElementById('txVal').innerText = "圏外 (AOS待ち)";  
+document.getElementById('rxVal').innerText = "圏外 (AOS待ち)";  
+}  
+}, 1000);  
+</script>  
+</body>  
+</html>
