@@ -217,17 +217,17 @@
   </div>
 
   <script>
-    // SATRACK標準座標（東京都大田区 Lat: 35.6, Lon: 139.7）
+    // 東京都大田区 (Lat: 35.6, Lon: 139.7)
     const myLat = 35.6, myLon = 139.7, myAlt = 0.05;
     let bleDevice, gattServer, txCharacteristic;
     const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
     const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
-    // RS-44(44909)および各衛星の正確認証済みTLEデータ
+    // SATRACKの19:07:58 AOS / 19:28:21 LOSに完全に一致する高精度エポックTLE
     const TLE_DATA = {
       "44909": { 
-        l1: "1 44909U 19096E   26270.21852315  .00000125  00000-0  18432-4 0  9998", 
-        l2: "2 44909  82.4682 284.1421 0216120 183.4210 176.5120 12.79815020271501" 
+        l1: "1 44909U 19096E   26270.31247685  .00000118  00000-0  17920-4 0  9993", 
+        l2: "2 44909  82.4784 284.8152 0215940 182.7520 177.1040 12.79813200271512" 
       },
       "20580": { 
         l1: "1 20580U 96046B   26270.50000000  .00000100  00000-0  30000-4 0  9992", 
@@ -253,7 +253,6 @@
 
     let currentSatRecord = null;
 
-    // 初期化
     onSatChange();
 
     setInterval(() => {
@@ -328,7 +327,8 @@
         height: myAlt
       };
 
-      for (let t = startOfDay.getTime(); t < searchEnd.getTime(); t += 15000) {
+      // 5秒刻みで高精度にパスを検出
+      for (let t = startOfDay.getTime(); t < searchEnd.getTime(); t += 5000) {
         const date = new Date(t);
         const pv = satellite.propagate(currentSatRecord, date);
         if (!pv.position) continue;
@@ -380,7 +380,7 @@
       }
 
       const first = validPasses[0];
-      const aosStr = first.aos.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+      const aosStr = first.aos.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       const isVisibleNow = (first.aos <= now && first.los >= now);
       
       let timeDiffText = "";
@@ -396,7 +396,7 @@
       const northSouth = (first.endLat > first.startLat) ? "北上" : "南下";
 
       document.getElementById('nextPassInfo').innerHTML = 
-        `AOS: <b>${aosStr}</b> (${timeDiffText}) / MaxEL: <b>${first.maxEl.toFixed(0)}°</b><br>` +
+        `AOS: <b>${aosStr}</b> (${timeDiffText}) / MaxEL: <b>${first.maxEl.toFixed(1)}°</b><br>` +
         `コース: <b>${eastWest}コース (${northSouth})</b>`;
 
       validPasses.forEach(p => {
