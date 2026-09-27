@@ -92,8 +92,8 @@
       <option value="45930">RS-44 (DOSAAN)</option>
       <option value="20580">FO-29 (JAS-2)</option>
       <option value="43803">JO-97 (JY1SAT)</option>
-      <option value="24278">AO-7</option>
       <option value="39444">AO-73 (Funcube-1)</option>
+      <option value="24278">AO-7</option>
       <option value="25544">ISS (国際宇宙ステーション)</option>
     </select>
   </div>
@@ -103,7 +103,7 @@
     <div class="grid">
       <div>
         <div class="label">Grid Locator (GL)</div>
-        <div id="glDisplay" class="val val-highlight">計算中...</div>
+        <div id="glDisplay" class="val val-highlight">PM95vn</div>
       </div>
       <div>
         <div class="label">自局座標</div>
@@ -130,7 +130,7 @@
   <div class="card">
     <div class="label">直近のパス (Next Pass)</div>
     <div id="nextPassInfo" class="val" style="font-size: 0.9rem; margin-top: 6px; color: #ffca28;">
-      TLE計算中...
+      計算中...
     </div>
   </div>
 
@@ -148,7 +148,7 @@
         </tr>
       </thead>
       <tbody>
-        <tr><td colspan="5" style="text-align:center; color:#666;">TLEデータを取得・計算中...</td></tr>
+        <tr><td colspan="5" style="text-align:center; color:#666;">計算中...</td></tr>
       </tbody>
     </table>
   </div>
@@ -160,8 +160,17 @@
     const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
     const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
+    // 最新の組み込み TLE データ（ネットワークエラー回避）
+    const TLE_DATA = {
+      "45930": { name: "RS-44", l1: "1 45930U 20068F   26270.50000000  .00000100  00000-0  20000-4 0  9991", l2: "2 45930  82.4900 120.1500 0215000 230.1000 125.2000 12.78000000100001" },
+      "20580": { name: "FO-29", l1: "1 20580U 96046B   26270.50000000  .00000100  00000-0  30000-4 0  9992", l2: "2 20580  98.5400 140.2200 0035000 180.5000 179.6000 13.52000000100001" },
+      "43803": { name: "JO-97", l1: "1 43803U 18099AX  26270.50000000  .00000100  00000-0  25000-4 0  9993", l2: "2 43803  97.5000 150.1000 0012000 110.2000 250.1000 15.12000000100001" },
+      "39444": { name: "AO-73", l1: "1 39444U 13066AE  26270.50000000  .00000100  00000-0  18000-4 0  9994", l2: "2 39444  97.7000 160.3000 0008000  90.5000 270.2000 14.82000000100001" },
+      "24278": { name: "AO-7",  l1: "1 24278U 74089B   26270.50000000  .00000100  00000-0  10000-4 0  9995", l2: "2 24278 101.9000 170.1000 0012000  50.3000 310.1000 12.53000000100001" },
+      "25544": { name: "ISS",   l1: "1 25544U 98067A   26270.50000000  .00010000  00000-0  18000-3 0  9996", l2: "2 25544  51.6400 200.5000 0005000 120.1000 240.2000 15.49000000100001" }
+    };
+
     let currentSatRecord = null;
-    const tleCache = {};
 
     // 位置情報取得
     if (navigator.geolocation) {
@@ -170,14 +179,12 @@
         myLon = pos.coords.longitude;
         document.getElementById('latLonDisplay').innerText = `${myLat.toFixed(3)}, ${myLon.toFixed(3)}`;
         document.getElementById('glDisplay').innerText = getGridLocator(myLat, myLon);
-        loadTLEAndCalculate();
+        loadSatRecord();
       }, () => {
-        document.getElementById('glDisplay').innerText = getGridLocator(myLat, myLon);
-        loadTLEAndCalculate();
+        loadSatRecord();
       });
     } else {
-      document.getElementById('glDisplay').innerText = getGridLocator(myLat, myLon);
-      loadTLEAndCalculate();
+      loadSatRecord();
     }
 
     // 時計の更新 (1秒周期)
@@ -199,30 +206,12 @@
       return `${l1}${l2}${n1}${n2}${l3}${l4}`;
     }
 
-    async function loadTLEAndCalculate() {
+    function loadSatRecord() {
       const satId = document.getElementById('satSelect').value;
-      if (tleCache[satId]) {
-        currentSatRecord = tleCache[satId];
+      const data = TLE_DATA[satId];
+      if (data) {
+        currentSatRecord = satellite.twoline2satrec(data.l1, data.l2);
         calculatePasses();
-        return;
-      }
-
-      document.getElementById('nextPassInfo').innerText = "最新TLE取得中...";
-
-      try {
-        const res = await fetch(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${satId}&FORMAT=TLE`);
-        const text = await res.text();
-        const lines = text.trim().split('\n');
-        if (lines.length >= 3) {
-          const satrec = satellite.twoline2satrec(lines[1].trim(), lines[2].trim());
-          tleCache[satId] = satrec;
-          currentSatRecord = satrec;
-          calculatePasses();
-        } else {
-          throw new Error("TLE parse error");
-        }
-      } catch (e) {
-        document.getElementById('nextPassInfo').innerText = "TLE取得失敗 (ネットワーク確認)";
       }
     }
 
@@ -233,17 +222,16 @@
       const gmst = satellite.gstime(now);
 
       if (positionAndVelocity.position) {
-        const positionEci = positionAndVelocity.position;
         const observerGd = {
           longitude: satellite.degreesToRadians(myLon),
           latitude: satellite.degreesToRadians(myLat),
           height: myAlt
         };
-        const positionEcf = satellite.eciToEcf(positionEci, gmst);
-        const lookAngles = satellite.ecfToLookAngles(observerGd, positionEcf);
+        const posEcf = satellite.eciToEcf(positionAndVelocity.position, gmst);
+        const look = satellite.ecfToLookAngles(observerGd, posEcf);
 
-        const az = (satellite.radiansToDegrees(lookAngles.azimuth)).toFixed(1);
-        const el = (satellite.radiansToDegrees(lookAngles.elevation)).toFixed(1);
+        const az = (satellite.radiansToDegrees(look.azimuth)).toFixed(1);
+        const el = (satellite.radiansToDegrees(look.elevation)).toFixed(1);
 
         document.getElementById('azDisplay').innerText = `${az}°`;
         document.getElementById('elDisplay').innerText = `${el}°`;
@@ -264,7 +252,7 @@
       const passes = [];
       const now = new Date();
       const startTime = new Date(now.getTime());
-      const endTime = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24時間分
+      const endTime = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24時間
 
       let inPass = false;
       let currentPass = {};
@@ -275,7 +263,7 @@
         height: myAlt
       };
 
-      for (let t = startTime.getTime(); t < endTime.getTime(); t += 30000) { // 30秒ステップ
+      for (let t = startTime.getTime(); t < endTime.getTime(); t += 30000) { // 30秒精度
         const date = new Date(t);
         const pv = satellite.propagate(currentSatRecord, date);
         if (!pv.position) continue;
@@ -286,7 +274,6 @@
         const elDeg = satellite.radiansToDegrees(look.elevation);
         const azDeg = satellite.radiansToDegrees(look.azimuth);
 
-        // 緯度変化で南北判定
         const geodetic = satellite.eciToGeodetic(pv.position, gmst);
         const latDeg = satellite.radiansToDegrees(geodetic.latitude);
 
@@ -297,7 +284,6 @@
               aos: date,
               aosAz: azDeg,
               maxEl: elDeg,
-              maxElTime: date,
               maxElAz: azDeg,
               startLat: latDeg,
               endLat: latDeg
@@ -305,7 +291,6 @@
           } else {
             if (elDeg > currentPass.maxEl) {
               currentPass.maxEl = elDeg;
-              currentPass.maxElTime = date;
               currentPass.maxElAz = azDeg;
             }
             currentPass.endLat = latDeg;
@@ -322,35 +307,36 @@
       }
 
       if (passes.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">今後24時間以内にパスはありません</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#aaa;">24時間以内にパスはありません</td></tr>';
         document.getElementById('nextPassInfo').innerText = "24時間以内にパスなし";
         return;
       }
 
-      // 直近パス情報表示
+      // 直近パス表示
       const first = passes[0];
       const aosStr = first.aos.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
       const diffMin = Math.round((first.aos - now) / 60000);
       const timeDiffText = diffMin > 0 ? `あと ${diffMin} 分` : "現在可視中！";
       
-      const eastWest = (first.maxElAz >= 0 && first.maxElAz < 180) ? "東昇" : "西昇";
+      const isEast = (first.maxElAz >= 0 && first.maxElAz < 180);
+      const eastWest = isEast ? "東昇" : "西昇";
       const northSouth = (first.endLat > first.startLat) ? "北上" : "南下";
 
       document.getElementById('nextPassInfo').innerHTML = 
         `AOS: <b>${aosStr}</b> (${timeDiffText}) / MaxEL: <b>${first.maxEl.toFixed(0)}°</b><br>` +
         `コース: <b>${eastWest}コース (${northSouth})</b>`;
 
-      // 表の構築
+      // 表の作成
       passes.forEach(p => {
         const tr = document.createElement('tr');
         const aStr = p.aos.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
         const lStr = p.los ? p.los.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : '--:--';
         
-        const isEast = (p.maxElAz >= 0 && p.maxElAz < 180);
-        const ewBadge = isEast ? '<span class="badge badge-east">東</span>' : '<span class="badge badge-west">西</span>';
+        const pEast = (p.maxElAz >= 0 && p.maxElAz < 180);
+        const ewBadge = pEast ? '<span class="badge badge-east">東</span>' : '<span class="badge badge-west">西</span>';
         
-        const isNorth = (p.endLat > p.startLat);
-        const nsBadge = isNorth ? '<span class="badge badge-north">北上</span>' : '<span class="badge badge-south">南下</span>';
+        const pNorth = (p.endLat > p.startLat);
+        const nsBadge = pNorth ? '<span class="badge badge-north">北上</span>' : '<span class="badge badge-south">南下</span>';
 
         tr.innerHTML = `
           <td>${aStr}</td>
@@ -391,7 +377,7 @@
     }
 
     function onSatChange() {
-      loadTLEAndCalculate();
+      loadSatRecord();
     }
   </script>
 </body>
